@@ -7,8 +7,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body { font-family: Arial; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
-        .section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
         label { display: inline-block; width: 200px; font-weight: bold; }
         input { padding: 5px; width: 150px; margin-bottom: 10px; }
         table { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -20,7 +20,7 @@
         .monthly-summary table { width: auto; margin: 10px 0; }
         .monthly-summary td { padding: 5px 15px; }
         .monthly-summary h3 { margin: 0 0 10px 0; }
-        #loading { display: none; color: #666; margin: 10px 0; }
+        #loading { display: none; color: #666; margin: 10px 0; font-style: italic; }
     </style>
 </head>
 <body>
@@ -111,9 +111,14 @@
             </div>
 
             <div id="loading">Loading price data...</div>
+            
+            <div class="monthly-summary">
+                <!-- Monthly summary table will be inserted here -->
+            </div>
+
             <div class="table-container">
                 <div id="priceTable">
-                    <!-- Table will be populated by JavaScript -->
+                    <!-- Price table will be inserted here -->
                 </div>
             </div>
         </div>
@@ -147,11 +152,13 @@
             const loadPercentage = parseFloat(document.getElementById('loadPercentage').value);
             const gasPrice = parseFloat(document.getElementById('gasPrice').value);
 
+            // Calculate results
             const kwe = gasEngine * loadPercentage * engineCount;
             const consumption = ngConsumption * loadPercentage * engineCount;
             const kwePrice = (ngConsumption * gasPrice) / gasEngine;
             const mwePrice = kwePrice * 1000;
 
+            // Update display
             document.getElementById('kweResult').textContent = kwe.toFixed(2);
             document.getElementById('consumptionResult').textContent = consumption.toFixed(2);
             document.getElementById('kWePriceResult').textContent = kwePrice.toFixed(2);
@@ -180,45 +187,9 @@
             const mwePrice = parseFloat(document.getElementById('mWePriceResult').textContent);
             const kweValue = parseFloat(document.getElementById('kweResult').textContent);
             const monthlySpending = parseFloat(document.getElementById('totalSpending').textContent);
-            const annualSpending = monthlySpending * 12;
             
             let hoursCount = 0;
             let totalIncome = 0;
-            let totalRevenue = 0;
-
-            const table = document.createElement('table');
-            const headerRow = document.createElement('tr');
-            headerRow.innerHTML = '<th>Day</th>' + Array.from({length: 24}, (_, i) => 
-                `<th>${i+1}</th>`).join('');
-            table.appendChild(headerRow);
-
-            priceData.forEach((dayPrices, index) => {
-                const row = document.createElement('tr');
-                row.innerHTML = `<td>${index + 1}</td>`;
-                
-                dayPrices.forEach(price => {
-                    const isHighlighted = price > minPrice;
-                    row.innerHTML += `<td class="${isHighlighted ? 'highlighted' : ''}">${price}</td>`;
-                    
-                    if (isHighlighted) {
-                        hoursCount++;
-                        // Income = (price - MWe price) * kweValue / 1000
-                        const hourIncome = ((price - mwePrice)/1000) * kweValue;
-                        totalIncome += hourIncome;
-                    }
-                });
-                
-                table.appendChild(row);
-            });
-
-            document.getElementById('priceTable').innerHTML = '';
-            document.getElementById('priceTable').appendChild(table);
-            
-            totalRevenue -= annualSpending;
-            
-            document.getElementById('hourCount').textContent = hoursCount;
-            document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
-            document.getElementById('totalRevenue').textContent = totalRevenue.toFixed(2);
 
             // Create monthly summary table
             const monthlyTable = document.createElement('table');
@@ -229,26 +200,41 @@
             const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             let dayCounter = 0;
 
-            const monthlyExpenses = monthlySpending;
+            // Create price table
+            const priceTable = document.createElement('table');
+            const headerRow = document.createElement('tr');
+            headerRow.innerHTML = '<th>Day</th>' + Array.from({length: 24}, (_, i) => `<th>${i+1}</th>`).join('');
+            priceTable.appendChild(headerRow);
 
+            // Process each day
             daysPerMonth.forEach((days, monthIndex) => {
                 for(let day = 0; day < days; day++) {
-                    const dayData = priceData[dayCounter];
-                    if (dayData) {
-                        dayData.forEach(price => {
-                            if (price > minPrice) {
-                                // Income = (price - MWe price) * kweValue / 1000
-                                const hourIncome = ((price - mwePrice)/1000) * kweValue;
-                                monthlyIncome[monthIndex] += hourIncome;
-                            }
-                        });
-                    }
+                    if (dayCounter >= priceData.length) break;
+                    
+                    const dayPrices = priceData[dayCounter];
+                    const row = document.createElement('tr');
+                    row.innerHTML = `<td>${dayCounter + 1}</td>`;
+                    
+                    dayPrices.forEach((price, hour) => {
+                        const isHighlighted = price > minPrice;
+                        row.innerHTML += `<td class="${isHighlighted ? 'highlighted' : ''}">${price}</td>`;
+                        
+                        if (isHighlighted) {
+                            hoursCount++;
+                            const hourIncome = ((price - mwePrice)/1000) * kweValue;
+                            totalIncome += hourIncome;
+                            monthlyIncome[monthIndex] += hourIncome;
+                        }
+                    });
+                    
+                    priceTable.appendChild(row);
                     dayCounter++;
                 }
-                // Revenue = Income - Monthly Expenses
-                monthlyRevenue[monthIndex] = monthlyIncome[monthIndex] - monthlyExpenses;
+                // Calculate monthly revenue
+                monthlyRevenue[monthIndex] = monthlyIncome[monthIndex] - monthlySpending;
             });
 
+            // Update monthly summary table
             monthlyIncome.forEach((income, index) => {
                 const monthName = new Date(2024, index).toLocaleString('default', { month: 'long' });
                 const revenue = monthlyRevenue[index];
@@ -260,20 +246,19 @@
                     </tr>`;
             });
 
-            // Annual revenue = Total Income - (Monthly Spending * 12)
-            totalRevenue = totalIncome - (monthlySpending * 12);
+            // Calculate annual revenue as sum of monthly revenues
+            const annualRevenue = monthlyRevenue.reduce((sum, revenue) => sum + revenue, 0);
 
-            const monthlyDiv = document.createElement('div');
-            monthlyDiv.className = 'monthly-summary';
-            monthlyDiv.innerHTML = '<h3>Monthly Income Summary</h3>';
-            monthlyDiv.appendChild(monthlyTable);
-
-            const existingMonthly = document.querySelector('.monthly-summary');
-            if (existingMonthly) {
-                existingMonthly.replaceWith(monthlyDiv);
-            } else {
-                document.getElementById('priceTable').parentNode.insertBefore(monthlyDiv, document.getElementById('priceTable'));
-            }
+            // Update display
+            document.querySelector('.monthly-summary').innerHTML = '<h3>Monthly Income Summary</h3>';
+            document.querySelector('.monthly-summary').appendChild(monthlyTable);
+            
+            document.getElementById('priceTable').innerHTML = '';
+            document.getElementById('priceTable').appendChild(priceTable);
+            
+            document.getElementById('hourCount').textContent = hoursCount;
+            document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
+            document.getElementById('totalRevenue').textContent = annualRevenue.toFixed(2);
         }
 
         // Add event listeners
