@@ -11,6 +11,7 @@
         .section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
         label { display: inline-block; width: 200px; font-weight: bold; }
         input { padding: 5px; width: 150px; margin-bottom: 10px; }
+        select { padding: 5px; width: 200px; margin-bottom: 10px; font-size: 14px; }
         table { border-collapse: collapse; width: 100%; font-size: 12px; }
         th, td { border: 1px solid #ddd; padding: 4px; text-align: right; }
         .highlighted { background-color: #90EE90; }
@@ -32,8 +33,20 @@
                 <input type="number" id="engineCount" value="1" min="1">
             </div>
             <div>
+                <label>Engine type:</label>
+                <select id="engineType" onchange="updateEngineValues()">
+                    <option value="wartsila">Wärtsilä W16V25SG (3000 kWe)</option>
+                    <option value="dha" selected>DHA (315 kWe)</option>
+                    <option value="jenbacher">Jenbacher 612 (2200 kWe)</option>
+                </select>
+            </div>
+            <div>
                 <label>Gas Engine (kWe):</label>
                 <input type="number" id="gasEngine" value="315">
+            </div>
+            <div>
+                <label>Engine price:</label>
+                <input type="number" id="enginePrice" value="2000000">
             </div>
             <div>
                 <label>NG consumption (m³):</label>
@@ -58,6 +71,10 @@
             <div>
                 <label>Consumption (m³):</label>
                 <span id="consumptionResult">0</span>
+            </div>
+            <div>
+                <label>Investment+20%:</label>
+                <span id="investmentResult">0</span>
             </div>
             <div>
                 <label>1 kWe price:</label>
@@ -108,6 +125,8 @@
                 <div>Hours above minimum price: <span id="hourCount">0</span></div>
                 <div>Total Income: <span id="totalIncome">0</span></div>
                 <div>Annual Revenue (after expenses): <span id="totalRevenue">0</span></div>
+                <div>Total VAT: <span id="totalVAT" style="color: green">0</span></div>
+                <div>Re-Investment: <span id="reInvestment" style="color: green">0</span></div>
             </div>
 
             <div id="loading">Loading price data...</div>
@@ -126,6 +145,36 @@
 
     <script>
         let priceData = [];
+
+        // Updated engine specifications with NG consumption and prices
+        const engineSpecs = {
+            wartsila: {
+                power: 3000,
+                name: "Wärtsilä W16V25SG",
+                ngConsumption: 777,
+                price: 6000000
+            },
+            dha: {
+                power: 315,
+                name: "DHA",
+                ngConsumption: 84,
+                price: 2000000
+            },
+            jenbacher: {
+                power: 2200,
+                name: "Jenbacher 612",
+                ngConsumption: 444.30,
+                price: 5000000
+            }
+        };
+
+        function updateEngineValues() {
+            const selectedEngine = document.getElementById('engineType').value;
+            document.getElementById('gasEngine').value = engineSpecs[selectedEngine].power;
+            document.getElementById('ngConsumption').value = engineSpecs[selectedEngine].ngConsumption;
+            document.getElementById('enginePrice').value = engineSpecs[selectedEngine].price;
+            calculateResults();
+        }
 
         async function loadPriceData() {
             document.getElementById('loading').style.display = 'block';
@@ -149,18 +198,21 @@
             const engineCount = parseFloat(document.getElementById('engineCount').value);
             const gasEngine = parseFloat(document.getElementById('gasEngine').value);
             const ngConsumption = parseFloat(document.getElementById('ngConsumption').value);
+            const enginePrice = parseFloat(document.getElementById('enginePrice').value);
             const loadPercentage = parseFloat(document.getElementById('loadPercentage').value);
             const gasPrice = parseFloat(document.getElementById('gasPrice').value);
 
             // Calculate results
             const kwe = gasEngine * loadPercentage * engineCount;
             const consumption = ngConsumption * loadPercentage * engineCount;
+            const investment = enginePrice * engineCount * 1.2; // Adding 20%
             const kwePrice = (ngConsumption * gasPrice) / gasEngine;
             const mwePrice = kwePrice * 1000;
 
             // Update display
             document.getElementById('kweResult').textContent = kwe.toFixed(2);
             document.getElementById('consumptionResult').textContent = consumption.toFixed(2);
+            document.getElementById('investmentResult').textContent = investment.toFixed(2);
             document.getElementById('kWePriceResult').textContent = kwePrice.toFixed(2);
             document.getElementById('mWePriceResult').textContent = mwePrice.toFixed(2);
 
@@ -187,16 +239,27 @@
             const mwePrice = parseFloat(document.getElementById('mWePriceResult').textContent);
             const kweValue = parseFloat(document.getElementById('kweResult').textContent);
             const monthlySpending = parseFloat(document.getElementById('totalSpending').textContent);
+            const totalInvestment = parseFloat(document.getElementById('investmentResult').textContent);
             
             let hoursCount = 0;
             let totalIncome = 0;
+            let cumulativeRevenue = 0;
 
             // Create monthly summary table
             const monthlyTable = document.createElement('table');
-            monthlyTable.innerHTML = '<tr><th>Month</th><th>Income</th><th>Revenue</th></tr>';
+            monthlyTable.innerHTML = '<tr><th>Month</th><th>kWe sold</th><th>Gas cost</th><th>Gas VAT</th><th>Electricity VAT</th><th>Net VAT</th><th>Income</th><th>Revenue</th><th>Break-even</th></tr>';
             
             const monthlyIncome = Array(12).fill(0);
             const monthlyRevenue = Array(12).fill(0);
+            const monthlyBreakeven = Array(12).fill(0);
+            const hoursAboveMinPricePerMonth = Array(12).fill(0);
+            const monthlyGasCost = Array(12).fill(0);
+            const monthlyGasVAT = Array(12).fill(0);
+            const monthlyElectricityVAT = Array(12).fill(0);
+            const monthlyNetVAT = Array(12).fill(0);
+            
+            const gasPrice = parseFloat(document.getElementById('gasPrice').value);
+            const consumption = parseFloat(document.getElementById('consumptionResult').textContent);
             const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             let dayCounter = 0;
 
@@ -221,33 +284,60 @@
                         
                         if (isHighlighted) {
                             hoursCount++;
+                            hoursAboveMinPricePerMonth[monthIndex]++;
                             const hourIncome = ((price - mwePrice)/1000) * kweValue;
+                            const hourGasCost = consumption * gasPrice;
+                            const hourGasVAT = hourGasCost * 0.2;
+                            const hourElectricityVAT = hourIncome * 0.2;
+                            const hourNetVAT = hourGasVAT - hourElectricityVAT;
+                            
                             totalIncome += hourIncome;
                             monthlyIncome[monthIndex] += hourIncome;
+                            monthlyGasCost[monthIndex] += hourGasCost;
+                            monthlyGasVAT[monthIndex] += hourGasVAT;
+                            monthlyElectricityVAT[monthIndex] += hourElectricityVAT;
+                            monthlyNetVAT[monthIndex] += hourNetVAT;
                         }
                     });
                     
                     priceTable.appendChild(row);
                     dayCounter++;
                 }
-                // Calculate monthly revenue
+                // Calculate monthly revenue and break-even
                 monthlyRevenue[monthIndex] = monthlyIncome[monthIndex] - monthlySpending;
+                cumulativeRevenue += monthlyRevenue[monthIndex];
+                monthlyBreakeven[monthIndex] = totalInvestment - cumulativeRevenue;
             });
 
-            // Update monthly summary table
+            // Update monthly summary table with break-even column
             monthlyIncome.forEach((income, index) => {
                 const monthName = new Date(2024, index).toLocaleString('default', { month: 'long' });
                 const revenue = monthlyRevenue[index];
+                const breakeven = monthlyBreakeven[index];
+                const monthWorkingHours = hoursAboveMinPricePerMonth[index] || 0;
+                const kWeSold = kweValue * monthWorkingHours;
+                const gasCost = monthlyGasCost[index];
+                const gasVAT = monthlyGasVAT[index];
+                const electricityVAT = monthlyElectricityVAT[index];
+                const netVAT = monthlyNetVAT[index];
                 monthlyTable.innerHTML += `
                     <tr>
                         <td>${monthName}</td>
+                        <td>${kWeSold.toFixed(2)}</td>
+                        <td>${gasCost.toFixed(2)}</td>
+                        <td style="color: green">+${gasVAT.toFixed(2)}</td>
+                        <td style="color: red">-${electricityVAT.toFixed(2)}</td>
+                        <td style="color: ${netVAT >= 0 ? 'green' : 'red'}">${netVAT >= 0 ? '+' : '-'}${Math.abs(netVAT).toFixed(2)}</td>
                         <td>${income.toFixed(2)}</td>
                         <td style="color: ${revenue >= 0 ? 'green' : 'red'}">${revenue.toFixed(2)}</td>
+                        <td style="color: ${breakeven <= 0 ? 'green' : 'red'}">${breakeven <= 0 ? '+' : '-'}${Math.abs(breakeven).toFixed(2)}</td>
                     </tr>`;
             });
 
-            // Calculate annual revenue as sum of monthly revenues
+            // Calculate totals
             const annualRevenue = monthlyRevenue.reduce((sum, revenue) => sum + revenue, 0);
+            const totalVAT = monthlyNetVAT.reduce((sum, vat) => sum + vat, 0);
+            const reInvestment = monthlyBreakeven[11]; // December's break-even value
 
             // Update display
             document.querySelector('.monthly-summary').innerHTML = '<h3>Monthly Income Summary</h3>';
@@ -259,6 +349,8 @@
             document.getElementById('hourCount').textContent = hoursCount;
             document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
             document.getElementById('totalRevenue').textContent = annualRevenue.toFixed(2);
+            document.getElementById('totalVAT').textContent = `${totalVAT >= 0 ? '+' : '-'}${Math.abs(totalVAT).toFixed(2)}`;
+            document.getElementById('reInvestment').textContent = reInvestment <= 0 ? `+${Math.abs(reInvestment).toFixed(2)}` : '0.00';
         }
 
         // Add event listeners
